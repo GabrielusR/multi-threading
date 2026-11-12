@@ -1,0 +1,4 @@
+thread
+*.log
+README.md
+.codelite/

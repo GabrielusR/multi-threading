@@ -5,6 +5,7 @@
 #include <vector>
 #include <atomic>
 #include <fstream>
+#include <future>
 
 #include "logging.h"
 
@@ -68,6 +69,7 @@ int main() {
 
 	std::ofstream resLog("result.log", std::ios::app);
 
+#if 0
 	std::thread workerProd([&tsQueue]() {
 
 		int i = {};
@@ -88,12 +90,34 @@ int main() {
 				LOG(resLog, value);//resLog << value << std::endl;
 		}
 	});
+#endif
+
+	std::future<void> prodFuture = std::async(std::launch::async, [&tsQueue]() {
+
+		int i = {};
+
+		//for(int i = 0; i < 1000; i++) {
+		while(!isFinished)
+			tsQueue.push(++i);
+		//}
+	});
+	
+	std::future<void> consFuture = std::async(std::launch::async, [&tsQueue, &resLog]() {
+
+		int value = {};	
+
+		while(!isFinished) {
+
+			if(tsQueue.waitPop(value))
+				LOG(resLog, value);//resLog << value << std::endl;
+		}
+	});
 
 	std::cin.get();
 
 	tsQueue.stop();
-	workerProd.join();
-	workerCons.join();
+	//workerProd.join();
+	//workerCons.join();
 
 	PRINT("Main thread finished.");
 

@@ -30,8 +30,6 @@ private:
 
 public:
 
-	ThreadSafeQueue() = default;
-
 	explicit ThreadSafeQueue(size_t reserve) { queue.reserve(reserve); }
 
 	void push(T val) {
@@ -40,7 +38,7 @@ public:
 
 		DEBUG("push");
 
-		queue.push_back(std::move(val));
+		queue.push_back(val);
 
 		//create a notification for the thread waiting for this work to be done
 		cv.notify_one();	

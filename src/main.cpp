@@ -1,5 +1,5 @@
 #include <iostream>
-#include <vector>
+#include <queue>
 #include <fstream>
 
 #include <future>
@@ -24,13 +24,11 @@ class ThreadSafeQueue {
 
 private:
 
-	std::vector<T> queue{};
+	std::queue<T> queue{};
 	std::mutex mtx{};
 	std::condition_variable cv{};
 
 public:
-
-	explicit ThreadSafeQueue(size_t reserve) { queue.reserve(reserve); }
 
 	void push(T val) {
 
@@ -38,7 +36,7 @@ public:
 
 		DEBUG("push");
 
-		queue.push_back(val);
+		queue.push(val);
 
 		//create a notification for the thread waiting for this work to be done
 		cv.notify_one();	
@@ -55,7 +53,7 @@ public:
 		if(queue.empty() && isFinished) return false;
 
 		val = std::move(queue.front());
-		queue.erase(queue.begin());
+		queue.pop();
 
 		return true;
 	}
@@ -76,7 +74,7 @@ public:
 void producer(ThreadSafeQueue<int> &tsQueue, std::promise<int>& prodRes) {
 
 	try {
-		int i = {};
+		uint64_t i = {};
 
 		while(!isFinished)
 			tsQueue.push(++i);
@@ -86,6 +84,8 @@ void producer(ThreadSafeQueue<int> &tsQueue, std::promise<int>& prodRes) {
 	} catch(...) {
 
 		prodRes.set_exception(std::current_exception());
+
+		tsQueue.stop();
 	}
 }
 
@@ -102,66 +102,79 @@ void consumer(ThreadSafeQueue<int> &tsQueue, std::ofstream& resLog, std::promise
 	} catch(...) {
 
 		consRes.set_exception(std::current_exception());	
+
+		tsQueue.stop();
 	}
 }
 #endif
 
 int main() {
 
-	ThreadSafeQueue<int> tsQueue(1000);
+	try {
 
-	std::ofstream resLog("result.log", std::ios::app);
+		ThreadSafeQueue<int> tsQueue{};
+
+		std::ofstream resLog("result.log", std::ios::app);
 
 #if THREAD 
 
-	std::promise<int> prodRes{};
-	std::future<int> prodFuture = prodRes.get_future();
+		std::promise<int> prodRes{};
+		std::future<int> prodFuture = prodRes.get_future();
 
-	std::promise<int> consRes{};
-	std::future<int> consFuture = consRes.get_future();
+		std::promise<int> consRes{};
+		std::future<int> consFuture = consRes.get_future();
 
-	std::thread workerProd(producer, std::ref(tsQueue), std::ref(prodRes));	
-	std::thread workerCons(consumer, std::ref(tsQueue), std::ref(resLog), std::ref(consRes));
+		std::thread workerProd(producer, std::ref(tsQueue), std::ref(prodRes));	
+		std::thread workerCons(consumer, std::ref(tsQueue), std::ref(resLog), std::ref(consRes));
 
 #else
-	std::future<int> prodFuture = std::async(std::launch::async, [&tsQueue]() {
+		std::future<int> prodFuture = std::async(std::launch::async, [&tsQueue]() {
 
-		int i = {};
+			int i = {};
 
-		while(!isFinished)
-			tsQueue.push(++i);
+			while(!isFinished)
+				tsQueue.push(++i);
+			
+			return 0;
+		});
 		
-		return 0;
-	});
-	
-	std::future<int> consFuture = std::async(std::launch::async, [&tsQueue, &resLog]() {
+		std::future<int> consFuture = std::async(std::launch::async, [&tsQueue, &resLog]() {
 
-		int value = {};	
+			int value = {};	
 
-		while(tsQueue.waitPop(value))
-			LOG(resLog, value);
+			while(tsQueue.waitPop(value))
+				LOG(resLog, value);
 
-		return 0;
-	});
+			return 0;
+		});
 #endif
 
-	std::cin.get();
-	tsQueue.stop();
+		std::cin.get();
+		tsQueue.stop();
 
 #if THREAD
-	workerProd.join();
-	workerCons.join();
+		workerProd.join();
+		workerCons.join();
 
-	DEBUG("Versão THREAD + PROMISE + FUTURE");
+		DEBUG("Versão THREAD + PROMISE + FUTURE");
 #else
 
-	DEBUG("Versão ASYNC + FUTURE");
+		DEBUG("Versão ASYNC + FUTURE");
 #endif
 
-	PRINT(prodFuture.get());
-	PRINT(consFuture.get());
+		PRINT(prodFuture.get());
+		PRINT(consFuture.get());
 
-	PRINT("Main thread finished.");
+		PRINT("Main thread finished.");
+
+	} catch (std::exception &ex) {
+
+		std::cerr << "Exception thrown: " << ex.what() << std::endl;
+		
+	} catch (...) {
+
+		std::cerr << "Unknown exception thrown." << std::endl;
+	}
 
 	return 0;
 }
